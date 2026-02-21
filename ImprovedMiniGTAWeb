@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mini GTA Mobile</title>
+<style>
+  body { margin:0; overflow:hidden; touch-action:none; background:#87CEEB; }
+  canvas { display:block; }
+  #ui { position:absolute; width:100%; height:100%; pointer-events:none; }
+  .button {
+    position:absolute; bottom:50px; width:80px; height:80px; border-radius:50%;
+    background:#f00; opacity:0.7; text-align:center; line-height:80px;
+    color:white; font-weight:bold; font-size:16px; pointer-events:auto;
+  }
+  #shoot { right:50px; }
+  #steal { right:150px; }
+  #drag { right:250px; }
+</style>
+</head>
+<body>
+<div id="ui">
+  <div id="shoot" class="button">Shoot</div>
+  <div id="steal" class="button">Steal</div>
+  <div id="drag" class="button">Drag</div>
+</div>
+
+<!-- Three.js -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.min.js"></script>
+<!-- NippleJS for mobile joysticks -->
+<script src="https://cdn.jsdelivr.net/npm/nipplejs@0.11.0/dist/nipplejs.min.js"></script>
+
+<script>
+// Scene setup
+let scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87CEEB);
+
+// Camera
+let camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+
+// Renderer
+let renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+// Ground
+let ground = new THREE.Mesh(
+  new THREE.BoxGeometry(50,1,50),
+  new THREE.MeshBasicMaterial({color:0x228B22})
+);
+ground.position.y = -0.5;
+scene.add(ground);
+
+// Player
+let player = new THREE.Mesh(
+  new THREE.BoxGeometry(1,2,1),
+  new THREE.MeshBasicMaterial({color:0x0000ff})
+);
+player.position.y = 1;
+scene.add(player);
+
+// Car
+let car = new THREE.Mesh(
+  new THREE.BoxGeometry(2,1,4),
+  new THREE.MeshBasicMaterial({color:0xff0000})
+);
+car.position.set(5,0.5,0);
+scene.add(car);
+
+// NPC
+let npc = new THREE.Mesh(
+  new THREE.BoxGeometry(1,2,1),
+  new THREE.MeshBasicMaterial({color:0xffff00})
+);
+npc.position.set(-5,1,0);
+scene.add(npc);
+
+// Lighting
+let light = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
+light.position.set(0,50,0);
+scene.add(light);
+
+// Joysticks
+let leftJoystick = nipplejs.create({zone:document.body, mode:'static', position:{left:'80px', bottom:'100px'}, color:'blue'});
+let rightJoystick = nipplejs.create({zone:document.body, mode:'static', position:{right:'80px', bottom:'100px'}, color:'green'});
+
+let moveVector = {x:0, z:0};
+let lookVector = {x:0, y:0};
+
+leftJoystick[0].on('move', (evt, data)=>{ moveVector.x = data.vector.x; moveVector.z = data.vector.y; });
+leftJoystick[0].on('end', ()=>{ moveVector.x=0; moveVector.z=0; });
+
+rightJoystick[0].on('move', (evt, data)=>{ lookVector.x = data.vector.x; lookVector.y = data.vector.y; });
+rightJoystick[0].on('end', ()=>{ lookVector.x=0; lookVector.y=0; });
+
+// Buttons
+let inCar=false, dragging=false;
+
+// Steal Car
+document.getElementById('steal').addEventListener('touchstart', ()=>{
+  if(player.position.distanceTo(car.position)<3){ 
+    inCar = !inCar;
+    if(inCar) alert("You're in the car!");
+    else alert("You exited the car!");
+  }
+});
+
+// Drag NPC
+document.getElementById('drag').addEventListener('touchstart', ()=>{ dragging=true; });
+document.getElementById('drag').addEventListener('touchend', ()=>{ dragging=false; });
+
+// Bullets
+let bullets = [];
+document.getElementById('shoot').addEventListener('touchstart', ()=>{
+  let bullet = new THREE.Mesh(
+    new THREE.SphereGeometry(0.2,8,8),
+    new THREE.MeshBasicMaterial({color:0x000000})
+  );
+  bullet.position.copy(player.position);
+  // Bullet moves in camera forward direction
+  let vector = new THREE.Vector3(0,0,-1);
+  vector.applyEuler(camera.rotation);
+  bullet.userData.velocity = vector.multiplyScalar(0.5);
+  scene.add(bullet);
+  bullets.push(bullet);
+});
+
+// Animate
+function animate(){
+  requestAnimationFrame(animate);
+
+  // Player movement
+  let speed = inCar ? 0.25 : 0.1;
+  player.position.x += moveVector.x * speed;
+  player.position.z -= moveVector.z * speed;
+
+  // Camera rotation from right joystick
+  let lookSpeed = 0.05;
+  camera.rotation.y -= lookVector.x * lookSpeed;
+  camera.rotation.x -= lookVector.y * lookSpeed;
+  camera.rotation.x = Math.max(-Math.PI/4, Math.min(Math.PI/4, camera.rotation.x));
+
+  // Camera follows player
+  let offset = new THREE.Vector3(0,5,10);
+  offset.applyEuler(camera.rotation);
+  camera.position.copy(player.position).add(offset);
+  camera.lookAt(player.position);
+
+  // Drag NPC
+  if(dragging){
+    npc.position.lerp(new THREE.Vector3(player.position.x+2,1,player.position.z),0.1);
+  }
+
+  // Bullets
+  bullets.forEach(b=>{ b.position.add(b.userData.velocity); });
+
+  // Car controls
+  if(inCar){
+    let carSpeed = 0.25;
+    car.position.x += moveVector.x * carSpeed;
+    car.position.z -= moveVector.z * carSpeed;
+    player.position.copy(car.position);
+  }
+
+  renderer.render(scene,camera);
+}
+animate();
+
+// Resize
+window.addEventListener('resize', ()=>{
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
